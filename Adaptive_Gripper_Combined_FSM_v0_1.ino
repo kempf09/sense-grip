@@ -14,13 +14,20 @@
 #include <VL53L0X.h>
 #include <math.h>
 
+// Paste the enum definition here:
+enum State:uint8_t {IDLE,POSITIONING,GRASPING,HOLDING,RELEASING,PAUSED,FAULT};
+
+// Optionally, define explicit prototypes to force the preprocessor to behave:
+const char* stateName(State s);
+void enterState(State s, const String& why);
+
 // ---------------- Hardware mapping ----------------
 static const uint8_t FSR_COUNT=6;
-static const uint8_t FSR_PINS[FSR_COUNT]={1,2,3,10,11,12};
-static const uint8_t TOF_COUNT=4;
-static const int TOF_SDA=8, TOF_SCL=9;
-static const int TOF_XSHUT[TOF_COUNT]={4,5,6,7};
-static const uint8_t TOF_ADDR[TOF_COUNT]={0x30,0x31,0x32,0x33};
+static const uint8_t FSR_PINS[FSR_COUNT]={1,2,4,5,6,10};
+static const uint8_t TOF_COUNT=3;
+static const int TOF_SDA=11, TOF_SCL=12;
+static const int TOF_XSHUT[TOF_COUNT]={13,14,21};
+static const uint8_t TOF_ADDR[TOF_COUNT]={0x30,0x31,0x32};
 #define SERVO_RX 17
 #define SERVO_TX 18
 
@@ -118,7 +125,7 @@ void initTof(){shutdownTof();Wire.end();Wire.begin(TOF_SDA,TOF_SCL,100000);Wire.
 void pollTof(){for(uint8_t i=0;i<TOF_COUNT;i++){if(!tof[i].online)continue;uint16_t mm=tofDev[i].readRangeContinuousMillimeters();if(tofDev[i].timeoutOccurred()){tof[i].errors++;tof[i].error="timeout";continue;}tof[i].mm=mm;tof[i].valid=true;tof[i].stale=false;tof[i].samples++;tof[i].lastMs=millis();tof[i].error="";}}
 
 // ---------------- State machine ----------------
-enum State:uint8_t {IDLE,POSITIONING,GRASPING,HOLDING,RELEASING,PAUSED,FAULT};
+
 const char* stateName(State s){static const char*n[]={"IDLE","POSITIONING","GRASPING","HOLDING","RELEASING","PAUSED","FAULT"};return n[s];}
 State state=IDLE,previousState=IDLE;uint32_t stateSince=0,stallSince=0;uint8_t retries=0,slipCount=0;bool fsmEnabled=false,manualOpen=false;String transitionReason="boot";uint16_t tofReference[TOF_COUNT]={};float holdForceReference=0;
 void enterState(State s,const String&why){previousState=state;state=s;stateSince=millis();transitionReason=why;stallSince=0;if(s==IDLE){motorStop();torque(1);}else if(s==POSITIONING)closeAt(fc.positionSpeed,fc.graspTorque);else if(s==GRASPING)closeAt(fc.graspSpeed,fc.graspTorque);else if(s==HOLDING){motorStop();for(uint8_t i=0;i<TOF_COUNT;i++)tofReference[i]=tof[i].mm;holdForceReference=averageForce();slipCount=0;}else if(s==RELEASING)openAt(fc.releaseSpeed,fc.graspTorque);else if(s==PAUSED||s==FAULT)motorStop();}
